@@ -119,6 +119,15 @@ jobs:
 
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 
+          # Collect every commit included in this release into a single array
+          if [ -n "$PREV_TAG" ]; then
+            gh api "repos/$REPO/compare/$PREV_TAG...HEAD" --jq '.commits' > commits.json
+          else
+            gh api "repos/$REPO/commits" --paginate --jq '.[]' | jq -s '.' > commits.json
+          fi
+
+          COMMIT_COUNT=$(jq 'length' commits.json)
+
           {
             echo "# 🚀 Release $VERSION"
             echo
@@ -126,6 +135,7 @@ jobs:
             echo "> **Repository:** \`$REPO\`"
             echo "> **Version:** \`$VERSION\`"
             echo "> **Release Tag:** \`$TAG\`"
+            echo "> **Commits:** \`$COMMIT_COUNT\`"
             echo
 
             echo "---"
@@ -134,16 +144,25 @@ jobs:
             echo "## ✨ What's Changed"
             echo
 
-            if [ -n "$PREV_TAG" ]; then
-              gh api repos/$REPO/compare/$PREV_TAG...HEAD \
-                --jq '.commits[] |
-                  "- \(.commit.message | split("\n")[0]) — **@" + (.author.login // .commit.author.name) + "**"'
-            else
-              gh api repos/$REPO/commits \
-                --paginate \
-                --jq '.[] |
-                  "- \(.commit.message | split("\n")[0]) — **@" + (.author.login // .commit.author.name) + "**"'
-            fi
+            jq -r --arg repo "$REPO" '
+              def emoji:
+                (.commit.message | ascii_downcase) as $m
+                | if   ($m | startswith("feat"))     then "✨"
+                  elif ($m | startswith("fix"))      then "🐛"
+                  elif ($m | startswith("docs"))     then "📝"
+                  elif ($m | startswith("refactor")) then "♻️"
+                  elif ($m | startswith("perf"))     then "⚡"
+                  elif ($m | startswith("test"))     then "✅"
+                  elif ($m | startswith("ci"))       then "👷"
+                  elif ($m | startswith("build"))    then "📦"
+                  elif ($m | startswith("chore"))    then "🔧"
+                  else "•" end;
+
+              .[]
+              | "- " + emoji + " " + (.commit.message | split("\n")[0])
+              + " ([" + (.sha[0:7]) + "](https://github.com/\($repo)/commit/" + .sha + "))"
+              + " — **@" + (.author.login // .commit.author.name) + "**"
+            ' commits.json
 
             echo
             echo "---"
@@ -152,18 +171,15 @@ jobs:
             echo "## ❤️ Contributors"
             echo
 
-            if [ -n "$PREV_TAG" ]; then
-              gh api repos/$REPO/compare/$PREV_TAG...HEAD \
-                --jq '
-                  [.commits[]
-                  | (.author.login // .commit.author.name)]
-                  | unique[]
-                  | "- @" + .
-                '
-            else
-              gh api repos/$REPO/contributors \
-                --jq '.[] | "- @" + .login'
-            fi
+            jq -r '
+              [.[]
+              | if .author.login
+                  then "[@" + .author.login + "](https://github.com/" + .author.login + ")"
+                  else .commit.author.name
+                end]
+              | unique[]
+              | "- " + .
+            ' commits.json
 
             echo
             echo "---"
