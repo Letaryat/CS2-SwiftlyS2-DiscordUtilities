@@ -87,18 +87,19 @@ public sealed class SteamApiService : IDisposable
         if (_mapImageResolvedCache.TryGetValue(cacheKey, out var cachedUrl))
             return cachedUrl;
 
-        // 1. If workshop map ID is present, try Steam Workshop preview image first
-        if (workshopId.HasValue && workshopId.Value > 0)
+        // 1. Workshop is always preferred: use the known ID when present, otherwise search the workshop by name
+        var wsInfo = workshopId.HasValue && workshopId.Value > 0
+            ? await GetWorkshopMapInfoAsync(workshopId.Value)
+            : await SearchWorkshopMapByNameAsync(cleanMapName);
+
+        if (!string.IsNullOrWhiteSpace(wsInfo?.PreviewUrl))
         {
-            var wsInfo = await GetWorkshopMapInfoAsync(workshopId.Value);
-            if (!string.IsNullOrWhiteSpace(wsInfo?.PreviewUrl))
-            {
-                _mapImageResolvedCache[cacheKey] = wsInfo.PreviewUrl;
-                return wsInfo.PreviewUrl;
-            }
+            _mapImageResolvedCache[cacheKey] = wsInfo.PreviewUrl;
+            return wsInfo.PreviewUrl;
         }
 
-        // Ensure vauff list is available
+        // 2. Fall back to the vauff.com map image database
+        // make sure vauff list is available
         if (!_vauffListFetched)
         {
             await RefreshVauffMapListAsync();
@@ -232,6 +233,16 @@ public sealed class SteamApiService : IDisposable
         return d[n, m];
     }
 
+    private static string NormalizeMapName(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (var c in value.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(c)) sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     private async Task<bool> CheckUrlExistsAsync(string url)
     {
         try
@@ -305,6 +316,12 @@ public sealed class SteamApiService : IDisposable
                 return null;
             }
 
+            var cleanNorm = NormalizeMapName(cleanName);
+            if (cleanNorm.Length == 0) return null;
+
+            WorkshopMapInfo? bestMatch = null;
+            var bestScore = int.MaxValue;
+
             foreach (var item in details.EnumerateArray())
             {
                 if (!item.TryGetProperty("publishedfileid", out var idProp))
@@ -318,6 +335,8 @@ public sealed class SteamApiService : IDisposable
                 var previewUrl = item.TryGetProperty("preview_url", out var prevProp) ? prevProp.GetString() ?? "" : "";
                 var desc = item.TryGetProperty("short_description", out var descProp) ? descProp.GetString() ?? "" : "";
 
+                if (string.IsNullOrWhiteSpace(previewUrl)) continue;
+
                 var info = new WorkshopMapInfo
                 {
                     WorkshopId = wsId,
@@ -327,8 +346,23 @@ public sealed class SteamApiService : IDisposable
                 };
 
                 _workshopCache[wsId] = info;
-                return info;
+
+                // Only trust results whose title actually refers to the requested map
+                var titleNorm = NormalizeMapName(title);
+                if (titleNorm.Length == 0) continue;
+                if (titleNorm.Contains(cleanNorm, StringComparison.Ordinal) ||
+                    cleanNorm.Contains(titleNorm, StringComparison.Ordinal))
+                {
+                    var score = Math.Abs(titleNorm.Length - cleanNorm.Length);
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        bestMatch = info;
+                    }
+                }
             }
+
+            if (bestMatch != null) return bestMatch;
         }
         catch (Exception ex)
         {

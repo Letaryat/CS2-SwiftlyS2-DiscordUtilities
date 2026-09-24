@@ -123,7 +123,7 @@ public partial class DiscordUtilities
             else
             {
                 embed.AddField("Current Map", $"`{cleanMapName}`", true);
-                mapImageUrl = await SteamApi.GetMapImageAsync(cleanMapName, null);
+                mapImageUrl = await SteamApi.GetMapImageAsync(cleanMapName, isWorkshop ? workshopId : null);
             }
 
             if (config.ShowPlayerCount)

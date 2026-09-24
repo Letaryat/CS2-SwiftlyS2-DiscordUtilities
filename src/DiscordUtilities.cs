@@ -9,12 +9,15 @@ using DiscordUtilities.Services;
 
 namespace DiscordUtilities;
 
-[PluginMetadata(
-    Id = "DiscordUtilities",
-    Version = "1.1.1",
-    Name = "Discord Utilities",
-    Author = "SyntX34",
-    Description = "Discord integration for CS2: map notifications, chat relay, admin logs, calladmin, bugreport.")]
+[PluginMetadata
+    (
+        Id = "DiscordUtilities",
+        Version = "1.1.2",
+        Name = "Discord Utilities",
+        Author = "SyntX34",
+        Description = "Discord integration for CS2: map notifications, chat relay, admin logs, calladmin, bugreport."
+    )
+]
 public partial class DiscordUtilities : BasePlugin
 {
     internal WebhookService Webhook { get; private set; } = null!;
