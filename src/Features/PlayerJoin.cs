@@ -48,7 +48,6 @@ public partial class DiscordUtilities
             if (player.IsFakeClient)
                 return;
 
-            // Daj serwerowi tick na pełną inicjalizację gracza.
             Core.Scheduler.NextTick(() =>
             {
                 _ = Task.Run(() => SendPlayerJoinedAsync(player));
@@ -68,9 +67,6 @@ public partial class DiscordUtilities
         try
         {
             var player = Core.PlayerManager.GetPlayer(@event.PlayerId);
-
-            // Po disconnect player może już nie być dostępny.
-            // Dlatego kopiujemy potrzebne informacje przed wysłaniem webhooka.
             var playerName = player?.Name ?? "Unknown";
             var steamId = player?.SteamID ?? 0;
             var connectedTime = player?.ConnectedTime ?? 0;
@@ -232,8 +228,6 @@ public partial class DiscordUtilities
 
             if (config.ShowPlayerCount)
             {
-                // Po disconnect event gracz może jeszcze przez chwilę
-                // być widoczny w PlayerManager, dlatego odejmujemy 1.
                 var playersOnline = Math.Max(
                     0,
                     GetOnlinePlayerCount() - 1
