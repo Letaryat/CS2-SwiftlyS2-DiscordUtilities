@@ -12,10 +12,10 @@ namespace DiscordUtilities;
 [PluginMetadata
     (
         Id = "DiscordUtilities",
-        Version = "1.1.2",
+        Version = "1.1.3",
         Name = "Discord Utilities",
         Author = "SyntX34",
-        Description = "Discord integration for CS2: map notifications, chat relay, admin logs, calladmin, bugreport."
+        Description = "Discord integration for CS2: map notifications, chat relay, admin logs, calladmin, bugreport, Player join / disconnect."
     )
 ]
 public partial class DiscordUtilities : BasePlugin
@@ -51,6 +51,7 @@ public partial class DiscordUtilities : BasePlugin
         InitializeCallAdmin();
         InitializeBugReport();
         InitializeDiscordToServer();
+        InitializePlayerJoined();
 
         Core.Logger.LogInformation("[DiscordUtilities] Loaded — Map: {Map} | Chat: {Chat} | Admin: {Admin} | CallAdmin: {CallAdmin} | BugReport: {BugReport} | DiscordToServer: {Bot}",
             Config.MapNotification.Enabled, Config.ChatRelay.Enabled, Config.AdminLogs.Enabled, Config.CallAdmin.Enabled, Config.BugReport.Enabled, Config.DiscordToServer.Enabled);

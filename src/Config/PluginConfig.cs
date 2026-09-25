@@ -13,6 +13,7 @@ public sealed class PluginConfig
     public AdminLogsConfig AdminLogs { get; set; } = new();
     public CallAdminConfig CallAdmin { get; set; } = new();
     public BugReportConfig BugReport { get; set; } = new();
+    public PlayerJoinedConfig PlayerJoined { get; set; } = new();
 }
 
 public sealed class MapNotificationConfig
@@ -87,6 +88,31 @@ public sealed class BugReportConfig
     public string MenuTitle { get; set; } = "Report a Bug / Issue";
     public int CooldownSeconds { get; set; } = 30;
     public int MinimumReasonLength { get; set; } = 3;
+}
+
+public class PlayerJoinedConfig
+{
+    public bool Enabled { get; set; } = false;
+
+    public string WebhookUrl { get; set; } = string.Empty;
+
+    public int CooldownSeconds { get; set; } = 2;
+
+    public string JoinEmbedColor { get; set; } = "#57F287";
+
+    public string LeaveEmbedColor { get; set; } = "#ED4245";
+
+    public bool ShowSteamId { get; set; } = true;
+
+    public bool ShowSteamProfile { get; set; } = true;
+
+    public bool ShowPlayerCount { get; set; } = true;
+
+    public bool ShowPlayerSlot { get; set; } = false;
+
+    public bool ShowConnectionTime { get; set; } = true;
+
+    public bool ShowDisconnectReason { get; set; } = true;
 }
 
 
