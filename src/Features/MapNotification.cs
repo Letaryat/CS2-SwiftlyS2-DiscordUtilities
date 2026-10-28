@@ -11,8 +11,6 @@ public partial class DiscordUtilities
     private string _currentMapName = "Unknown";
     private string _lastNotifiedMap = "";
 
-    private sealed record MapSnapshot(string MapName, int PlayerCount, string ServerName, string ConnectAddress);
-
     internal void InitializeMapNotification()
     {
         if (!Config.MapNotification.Enabled) return;
@@ -34,7 +32,7 @@ public partial class DiscordUtilities
 
                 if (isDifferentMap)
                 {
-                    _ = Task.Run(() => OnMapLoadedAsync(isExtension: false));
+                    QueueMapNotification(isExtension: false);
                 }
             }
         };
@@ -46,7 +44,7 @@ public partial class DiscordUtilities
             var trimmed = text.Trim().ToLowerInvariant();
             if (trimmed is "!extend" or "/extend" or "!ext" or "/ext" or "!mapextend" or "/mapextend")
             {
-                _ = Task.Run(() => OnMapLoadedAsync(isExtension: true));
+                QueueMapNotification(isExtension: true);
             }
             return HookResult.Continue;
         });
@@ -54,7 +52,48 @@ public partial class DiscordUtilities
         Core.Logger.LogInformation("[DiscordUtilities] MapNotification registered");
     }
 
-    private async Task OnMapLoadedAsync(bool isExtension = false)
+    // Plain data captured on the game thread; the background task never touches engine state.
+    private sealed record MapSnapshot(string MapName, int PlayerCount, string ServerName, string ConnectAddress);
+
+    // Game thread only: reads convars and the player list.
+    private MapSnapshot CaptureSnapshot()
+    {
+        var mapName = _currentMapName;
+        if (string.IsNullOrWhiteSpace(mapName) || mapName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var mapConvar = Core.ConVar.FindAsString("mapname");
+                if (!string.IsNullOrWhiteSpace(mapConvar?.ValueAsString))
+                    mapName = mapConvar.ValueAsString;
+            }
+            catch { }
+        }
+
+        return new MapSnapshot(mapName ?? "", GetOnlinePlayerCount(), GetServerDisplayName(), GetServerConnectAddress());
+    }
+
+    // Captures the snapshot on the game thread, then hands only plain data to the background task.
+    private void QueueMapNotification(bool isExtension)
+    {
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            MapSnapshot snap;
+            try
+            {
+                snap = CaptureSnapshot();
+            }
+            catch (Exception ex)
+            {
+                Core.Logger.LogWarning("[DiscordUtilities] MapNotification snapshot failed: {Error}", ex.Message);
+                return;
+            }
+
+            _ = Task.Run(() => OnMapLoadedAsync(isExtension, snap));
+        });
+    }
+
+    private async Task OnMapLoadedAsync(bool isExtension, MapSnapshot snap)
     {
         try
         {
@@ -63,13 +102,9 @@ public partial class DiscordUtilities
             if (Webhook.IsOnCooldown("map_notification", config.CooldownSeconds))
                 return;
 
-            var mapName = _currentMapName;
-            if (string.IsNullOrWhiteSpace(mapName) || mapName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
-            {
-                var mapConvar = Core.ConVar.FindAsString("mapname");
-                if (!string.IsNullOrWhiteSpace(mapConvar?.ValueAsString))
-                    mapName = mapConvar.ValueAsString;
-            }
+            var mapName = snap.MapName;
+            if (string.IsNullOrWhiteSpace(mapName))
+                return;
 
             if (!isExtension && string.Equals(_lastNotifiedMap, mapName, StringComparison.OrdinalIgnoreCase))
                 return;
@@ -83,9 +118,9 @@ public partial class DiscordUtilities
             if (lastSlash >= 0 && lastSlash < mapName.Length - 1)
                 cleanMapName = mapName[(lastSlash + 1)..];
 
-            var playerCount = GetOnlinePlayerCount();
-            var serverName = GetServerDisplayName();
-            var connectAddress = GetServerConnectAddress();
+            var playerCount = snap.PlayerCount;
+            var serverName = snap.ServerName;
+            var connectAddress = snap.ConnectAddress;
 
             var titlePrefix = isExtension ? "⏳ Map Extended" : "🗺️ Map Notification";
 
@@ -211,7 +246,7 @@ public partial class DiscordUtilities
         }
         catch (Exception ex)
         {
-            Core.Logger.LogError(ex, "[DiscordUtilities] MapNotification failed");
+            Core.Logger.LogError("[DiscordUtilities] MapNotification failed: {Error}", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -226,36 +261,4 @@ public partial class DiscordUtilities
             return 0;
         }
     }
-
-    // Wywoływać tylko na wątku gry.
-    private MapSnapshot CaptureSnapshot()
-    {
-        var mapName = _currentMapName;
-        if (string.IsNullOrWhiteSpace(mapName) || mapName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                var c = Core.ConVar.FindAsString("mapname");
-                if (!string.IsNullOrWhiteSpace(c?.ValueAsString)) mapName = c.ValueAsString;
-            }
-            catch { }
-        }
-        return new MapSnapshot(mapName ?? "", GetOnlinePlayerCount(), GetServerDisplayName(), GetServerConnectAddress());
-    }
-
-    private void QueueMapNotification(bool isExtension)
-    {
-        Core.Scheduler.NextWorldUpdate(() =>
-        {
-            MapSnapshot snap;
-            try { snap = CaptureSnapshot(); }
-            catch (Exception ex)
-            {
-                Core.Logger.LogWarning("[DiscordUtilities] MapNotification snapshot failed: {Error}", ex.Message);
-                return;
-            }
-            _ = Task.Run(() => OnMapLoadedAsync(isExtension, snap));
-        });
-    }
-
 }
