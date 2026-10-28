@@ -17,11 +17,14 @@ public sealed class SteamApiService : IDisposable
     private readonly ConcurrentDictionary<string, List<string>> _vauffMapLists = new();
     private long _vauffLastUpdated = 0;
     private bool _vauffListFetched = false;
+    private static string Brief(Exception ex) => $"{ex.GetType().Name}: {ex.Message}";
+    private DateTime _workshopSearchBackoffUntil = DateTime.MinValue;
+
 
     public SteamApiService(ILogger logger)
     {
         _logger = logger;
-        _httpClient = new HttpClient();
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "DiscordUtilities-SwiftlyS2/1.0");
 
         _ = Task.Run(RefreshVauffMapListAsync);
@@ -71,7 +74,7 @@ public sealed class SteamApiService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[DiscordUtilities] Could not pre-fetch vauff.com map list (will fall back to direct checks)");
+            _logger.LogWarning("[DiscordUtilities] Could not pre-fetch vauff.com map list: {Error}", Brief(ex));
         }
     }
 
@@ -80,8 +83,8 @@ public sealed class SteamApiService : IDisposable
         if (string.IsNullOrWhiteSpace(cleanMapName))
             return null;
 
-        var cacheKey = workshopId.HasValue && workshopId.Value > 0 
-            ? $"ws_{workshopId.Value}_{cleanMapName}" 
+        var cacheKey = workshopId.HasValue && workshopId.Value > 0
+            ? $"ws_{workshopId.Value}_{cleanMapName}"
             : cleanMapName;
 
         if (_mapImageResolvedCache.TryGetValue(cacheKey, out var cachedUrl))
@@ -285,7 +288,7 @@ public sealed class SteamApiService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[DiscordUtilities] Failed to fetch avatar for {SteamId}", steamId64);
+            _logger.LogError("[DiscordUtilities] Failed to fetch avatar for {SteamId}: {Error}", steamId64, Brief(ex));
         }
 
         return null;
@@ -293,6 +296,9 @@ public sealed class SteamApiService : IDisposable
 
     public async Task<WorkshopMapInfo?> SearchWorkshopMapByNameAsync(string mapName)
     {
+        if (string.IsNullOrWhiteSpace(_apiKey) || DateTime.UtcNow < _workshopSearchBackoffUntil)
+            return null;
+
         if (string.IsNullOrWhiteSpace(mapName))
             return null;
 
@@ -366,7 +372,8 @@ public sealed class SteamApiService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[DiscordUtilities] Steam Workshop Search failed for {MapName}", cleanName);
+            _workshopSearchBackoffUntil = DateTime.UtcNow.AddMinutes(10); // nie młóć Steama po błędzie
+            _logger.LogWarning("[DiscordUtilities] Steam Workshop Search failed for {MapName}: {Error}", cleanName, Brief(ex));
         }
 
         return null;
@@ -409,7 +416,7 @@ public sealed class SteamApiService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[DiscordUtilities] Failed to fetch workshop info for {WorkshopId}", workshopId);
+            _logger.LogError("[DiscordUtilities] Failed to fetch workshop info for {WorkshopId}: {Error}", workshopId, Brief(ex));
         }
 
         _workshopCache[workshopId] = null;

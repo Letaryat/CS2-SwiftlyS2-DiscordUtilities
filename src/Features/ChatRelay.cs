@@ -41,10 +41,14 @@ public partial class DiscordUtilities
         {
             var config = Config.ChatRelay;
 
-            if (string.IsNullOrWhiteSpace(text)) return;
-            if (teamOnly && config.IgnoreTeamChat) return;
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            if (teamOnly && config.IgnoreTeamChat)
+                return;
 
             var trimmedText = text.Trim();
+
             if (config.IgnoreCommands)
             {
                 if (trimmedText.StartsWith('!') || trimmedText.StartsWith('/'))
@@ -54,42 +58,46 @@ public partial class DiscordUtilities
                 {
                     foreach (var prefix in config.IgnoredPrefixes)
                     {
-                        if (string.IsNullOrWhiteSpace(prefix)) continue;
-                        if (trimmedText.StartsWith(prefix.Trim(), StringComparison.OrdinalIgnoreCase))
+                        if (string.IsNullOrWhiteSpace(prefix))
+                            continue;
+
+                        if (trimmedText.StartsWith(
+                                prefix.Trim(),
+                                StringComparison.OrdinalIgnoreCase))
+                        {
                             return;
+                        }
                     }
                 }
             }
 
             var player = Core.PlayerManager.GetPlayer(playerId);
+
             var playerName = player?.Name ?? $"Player #{playerId}";
             ulong steamId64 = player?.SteamID ?? 0;
 
             if (config.CooldownSeconds > 0 && steamId64 != 0)
             {
                 var now = DateTime.UtcNow;
+
                 if (_chatCooldowns.TryGetValue(steamId64, out var lastMsg) &&
                     (now - lastMsg).TotalSeconds < config.CooldownSeconds)
+                {
                     return;
+                }
 
                 _chatCooldowns[steamId64] = now;
             }
 
-            string? avatarUrl = null;
-            if (config.UseSteamAvatars && steamId64 != 0)
-                avatarUrl = await SteamApi.GetPlayerAvatarAsync(steamId64);
-
             var steamId2 = ConvertSteamId64ToSteamId2(steamId64);
 
-            var webhookUsername = config.UsernameFormat
-                .Replace("{PlayerName}", playerName)
-                .Replace("{SteamId2}", steamId2)
-                .Replace("{SteamId64}", steamId64.ToString())
-                .Replace("{Team}", teamOnly ? "[TEAM]" : "");
-
-            var format = teamOnly 
-                ? (string.IsNullOrWhiteSpace(config.TeamMessageFormat) ? "(TEAM) {Message}" : config.TeamMessageFormat)
-                : (string.IsNullOrWhiteSpace(config.MessageFormat) ? "{Message}" : config.MessageFormat);
+            var format = teamOnly
+                ? (string.IsNullOrWhiteSpace(config.TeamMessageFormat)
+                    ? "(TEAM) {Message}"
+                    : config.TeamMessageFormat)
+                : (string.IsNullOrWhiteSpace(config.MessageFormat)
+                    ? "{Message}"
+                    : config.MessageFormat);
 
             var formattedMessage = format
                 .Replace("{PlayerName}", playerName)
@@ -97,16 +105,122 @@ public partial class DiscordUtilities
                 .Replace("{SteamId64}", steamId64.ToString())
                 .Replace("{Message}", text);
 
-            // Send clean Discord message (no embed banner, pure webhook format)
-            await Webhook.SendMessageAsync(
+            string? avatarUrl = null;
+
+            if (config.UseSteamAvatars && steamId64 != 0)
+            {
+                // WAŻNE: tutaj nie ma '$' przed SteamID
+                avatarUrl = $"https://unavatar.io/steam/profile:{steamId64}";
+            }
+
+            var components = new List<DiscordComponentV2>();
+
+            // ============================================================
+            // CONTAINER
+            // ============================================================
+
+            var container = new DiscordComponentV2
+            {
+                Type = 17,
+                Components = []
+            };
+
+            // ============================================================
+            // PLAYER HEADER
+            // ============================================================
+
+            var playerHeader = new DiscordComponentV2
+            {
+                Type = 9, // SECTION
+                Components =
+                [
+                    new DiscordComponentV2
+                {
+                    Type = 10, // TEXT_DISPLAY
+                    Content =
+                        $"### {EscapeMarkdown(playerName)}\n" +
+                        $"`{EscapeMarkdown(steamId2)}`"
+                }
+                ]
+            };
+
+            // Thumbnail jest accessory SECTION.
+            // Nie dodajemy go, jeśli nie mamy poprawnego SteamID.
+            if (!string.IsNullOrWhiteSpace(avatarUrl))
+            {
+                playerHeader.Accessory = new DiscordComponentV2
+                {
+                    Type = 11, // THUMBNAIL
+                    Media = new DiscordMedia
+                    {
+                        Url = avatarUrl
+                    }
+                };
+            }
+
+            container.Components.Add(playerHeader);
+
+            // ============================================================
+            // SEPARATOR
+            // ============================================================
+
+            container.Components.Add(
+                new DiscordComponentV2
+                {
+                    Type = 14, // SEPARATOR
+                    Divider = true,
+                    Spacing = 1
+                });
+
+            // ============================================================
+            // MESSAGE
+            // ============================================================
+
+            container.Components.Add(
+                new DiscordComponentV2
+                {
+                    Type = 10, // TEXT_DISPLAY
+                    Content = EscapeMarkdown(formattedMessage)
+                });
+
+            // ============================================================
+            // STEAM BUTTON
+            // ============================================================
+
+            if (steamId64 != 0)
+            {
+                container.Components.Add(
+                    new DiscordComponentV2
+                    {
+                        Type = 1, // ACTION_ROW
+                        Components =
+                        [
+                            new DiscordComponentV2
+                        {
+                            Type = 2, // BUTTON
+                            Style = 5, // LINK
+                            Label = "Steam Profile",
+                            Url = $"https://steamcommunity.com/profiles/{steamId64}"
+                        }
+                        ]
+                    });
+            }
+
+            components.Add(container);
+
+            // ============================================================
+            // SEND
+            // ============================================================
+
+            await Webhook.SendComponentsV2Async(
                 config.WebhookUrl,
-                content: formattedMessage,
-                username: webhookUsername,
-                avatarUrl: avatarUrl);
+                components);
         }
         catch (Exception ex)
         {
-            Core.Logger.LogError(ex, "[DiscordUtilities] ChatRelay failed");
+            Core.Logger.LogError(
+                ex,
+                "[DiscordUtilities] ChatRelay failed");
         }
     }
 
@@ -121,4 +235,17 @@ public partial class DiscordUtilities
 
         return $"STEAM_0:{y}:{z}";
     }
+
+    private static string EscapeMarkdown(string text)
+    {
+        return text
+            .Replace("\\", "\\\\")
+            .Replace("*", "\\*")
+            .Replace("_", "\\_")
+            .Replace("~", "\\~")
+            .Replace("`", "\\`")
+            .Replace(">", "\\>")
+            .Replace("|", "\\|");
+    }
+
 }

@@ -87,39 +87,74 @@ public sealed class WebhookService : IDisposable
         await SendPayloadAsync(webhookUrl, payload);
     }
 
-    private async Task SendPayloadAsync(string webhookUrl, WebhookPayload payload)
+    private async Task SendPayloadAsync(
+        string webhookUrl,
+        object payload)
     {
         try
         {
             var json = JsonSerializer.Serialize(payload, JsonOptions);
-            using var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(webhookUrl, httpContent);
+            using var httpContent = new StringContent(
+                json,
+                Encoding.UTF8,
+                "application/json"
+            );
+
+            var response = await _httpClient.PostAsync(
+                webhookUrl,
+                httpContent
+            );
 
             if ((int)response.StatusCode == 429)
             {
                 var body = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("[DiscordUtilities] Rate limited by Discord: {Body}", body);
+
+                _logger.LogWarning(
+                    "[DiscordUtilities] Rate limited by Discord: {Body}",
+                    body
+                );
 
                 using var doc = JsonDocument.Parse(body);
-                if (doc.RootElement.TryGetProperty("retry_after", out var retryAfter))
+
+                if (doc.RootElement.TryGetProperty(
+                        "retry_after",
+                        out var retryAfter))
                 {
-                    var waitMs = (int)(retryAfter.GetDouble() * 1000) + 100;
+                    var waitMs =
+                        (int)(retryAfter.GetDouble() * 1000) + 100;
+
                     await Task.Delay(waitMs);
 
-                    using var retryContent = new StringContent(json, Encoding.UTF8, "application/json");
-                    await _httpClient.PostAsync(webhookUrl, retryContent);
+                    using var retryContent = new StringContent(
+                        json,
+                        Encoding.UTF8,
+                        "application/json"
+                    );
+
+                    await _httpClient.PostAsync(
+                        webhookUrl,
+                        retryContent
+                    );
                 }
             }
             else if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync();
-                _logger.LogError("[DiscordUtilities] Webhook failed ({StatusCode}): {Body}", (int)response.StatusCode, body);
+
+                _logger.LogError(
+                    "[DiscordUtilities] Webhook failed ({StatusCode}): {Body}",
+                    (int)response.StatusCode,
+                    body
+                );
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[DiscordUtilities] Failed to send webhook");
+            _logger.LogError(
+                ex,
+                "[DiscordUtilities] Failed to send webhook"
+            );
         }
     }
 
@@ -134,6 +169,29 @@ public sealed class WebhookService : IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+    }
+
+    public async Task SendComponentsV2Async(
+        string webhookUrl,
+        List<DiscordComponentV2> components,
+        string? username = null,
+        string? avatarUrl = null)
+    {
+        if (string.IsNullOrWhiteSpace(webhookUrl))
+            return;
+
+        var separator = webhookUrl.Contains('?') ? '&' : '?';
+        var url = $"{webhookUrl}{separator}with_components=true";
+
+        var payload = new WebhookComponentsV2Payload
+        {
+            Flags = 32768, // IS_COMPONENTS_V2
+            Username = username,
+            AvatarUrl = avatarUrl,
+            Components = components
+        };
+
+        await SendPayloadAsync(url, payload);
     }
 }
 
@@ -273,6 +331,69 @@ public sealed class EmbedField
 
     [JsonPropertyName("inline")]
     public bool? Inline { get; set; }
+}
+
+public sealed class WebhookComponentsV2Payload
+{
+    [JsonPropertyName("flags")]
+    public int Flags { get; set; }
+
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
+    [JsonPropertyName("avatar_url")]
+    public string? AvatarUrl { get; set; }
+
+    [JsonPropertyName("components")]
+    public List<DiscordComponentV2> Components { get; set; } = [];
+}
+
+public sealed class DiscordComponentV2
+{
+    [JsonPropertyName("type")]
+    public int Type { get; set; }
+
+    [JsonPropertyName("id")]
+    public int? Id { get; set; }
+
+    [JsonPropertyName("accent_color")]
+    public int? AccentColor { get; set; }
+
+    [JsonPropertyName("components")]
+    public List<DiscordComponentV2>? Components { get; set; }
+
+    [JsonPropertyName("content")]
+    public string? Content { get; set; }
+
+    [JsonPropertyName("accessory")]
+    public DiscordComponentV2? Accessory { get; set; }
+
+    [JsonPropertyName("media")]
+    public DiscordMedia? Media { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("divider")]
+    public bool? Divider { get; set; }
+
+    [JsonPropertyName("spacing")]
+    public int? Spacing { get; set; }
+
+    [JsonPropertyName("style")]
+    public int? Style { get; set; }
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; set; }
+}
+
+public sealed class DiscordMedia
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = "";
 }
 
 #endregion

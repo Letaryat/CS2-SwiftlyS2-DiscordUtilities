@@ -95,6 +95,7 @@ public partial class DiscordUtilities
         }
     }
 
+
     private async Task SendPlayerJoinedAsync(IPlayer player)
     {
         try
@@ -109,64 +110,120 @@ public partial class DiscordUtilities
             }
 
             var serverName = GetServerDisplayName();
+            var steamId = player.SteamID;
 
-            var embed = new DiscordEmbed
+            var infoLines = new List<string>();
+
+            if (config.ShowSteamId && steamId != 0)
             {
-                Title = "🟢 Player Joined",
-                Color = WebhookService.ParseColor(config.JoinEmbedColor),
-                Footer = new EmbedFooter
-                {
-                    Text = $"{serverName} • Discord Utilities"
-                }
-            };
-
-            embed.WithTimestamp();
-
-            embed.AddField(
-                "Player",
-                $"**{player.Name}**",
-                true
-            );
-
-            if (config.ShowSteamId && player.SteamID != 0)
-            {
-                embed.AddField(
-                    "SteamID",
-                    $"`{player.SteamID}`",
-                    true
-                );
+                infoLines.Add($"**SteamID:** `{steamId}`");
             }
 
             if (config.ShowPlayerCount)
             {
-                embed.AddField(
-                    "Players Online",
-                    $"{GetOnlinePlayerCount()}",
-                    true
+                infoLines.Add(
+                    $"**Players Online:** `{GetOnlinePlayerCount()}`"
                 );
             }
 
             if (config.ShowPlayerSlot)
             {
-                embed.AddField(
-                    "Slot",
-                    $"`{player.Slot}`",
-                    true
+                infoLines.Add(
+                    $"**Slot:** `{player.Slot}`"
                 );
             }
 
-            if (config.ShowSteamProfile && player.SteamID != 0)
+            var playerInfo = infoLines.Count > 0
+                ? string.Join("\n", infoLines)
+                : "";
+
+            var container = new DiscordComponentV2
             {
-                embed.AddField(
-                    "Steam Profile",
-                    $"[View Profile](https://steamcommunity.com/profiles/{player.SteamID})",
-                    false
-                );
-            }
+                Type = 17, // Container
 
-            await Webhook.SendEmbedAsync(
+                AccentColor = WebhookService.ParseColor(
+                    config.JoinEmbedColor
+                ),
+
+                Components =
+                [
+                    new DiscordComponentV2
+                {
+                    Type = 9, // Section
+
+                    Components =
+                    [
+                        new DiscordComponentV2
+                        {
+                            Type = 10, // Text Display
+                            Content = "## 🟢 Player Joined"
+                        },
+
+                        new DiscordComponentV2
+                        {
+                            Type = 10, // Text Display
+                            Content =
+                                $"**{player.Name}**\n\n" +
+                                playerInfo
+                        }
+                    ],
+
+                    Accessory = steamId != 0
+                        ? new DiscordComponentV2
+                        {
+                            Type = 11, // Thumbnail
+
+                            Media = new DiscordMedia
+                            {
+                                Url =
+                                    $"https://unavatar.io/steam/profile:{steamId}"
+                            },
+
+                            Description =
+                                $"{player.Name}'s Steam avatar"
+                        }
+                        : null
+                },
+
+                new DiscordComponentV2
+                {
+                    Type = 14, // Separator
+                    Divider = true,
+                    Spacing = 1
+                },
+
+                new DiscordComponentV2
+                {
+                    Type = 1, // Action Row
+
+                    Components =
+                    [
+                        new DiscordComponentV2
+                        {
+                            Type = 2, // Button
+                            Style = 5, // Link button
+                            Label = "Steam Profile",
+                            Url =
+                                steamId != 0
+                                    ? $"https://steamcommunity.com/profiles/{steamId}"
+                                    : null
+                        }
+                    ]
+                },
+
+                new DiscordComponentV2
+                {
+                    Type = 10, // Text Display
+                    Content =
+                        $"*{serverName} • Discord Utilities • " +
+                        $"<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>*"
+                }
+                ]
+            };
+
+            await Webhook.SendComponentsV2Async(
                 config.WebhookUrl,
-                embed,
+                [container],
                 username: serverName
             );
         }
@@ -178,6 +235,34 @@ public partial class DiscordUtilities
             );
         }
     }
+
+    private string BuildPlayerInfo(
+        IPlayer player,
+        dynamic config)
+    {
+        var lines = new List<string>();
+
+        if (config.ShowSteamId && player.SteamID != 0)
+        {
+            lines.Add($"**SteamID:** `{player.SteamID}`");
+        }
+
+        if (config.ShowPlayerCount)
+        {
+            lines.Add(
+                $"**Players Online:** `{GetOnlinePlayerCount()}`"
+            );
+        }
+
+        if (config.ShowPlayerSlot)
+        {
+            lines.Add($"**Slot:** `{player.Slot}`");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+
 
     private async Task SendPlayerLeftAsync(
         string playerName,
@@ -199,30 +284,12 @@ public partial class DiscordUtilities
 
             var serverName = GetServerDisplayName();
 
-            var embed = new DiscordEmbed
-            {
-                Title = "🔴 Player Left",
-                Color = WebhookService.ParseColor(config.LeaveEmbedColor),
-                Footer = new EmbedFooter
-                {
-                    Text = $"{serverName} • Discord Utilities"
-                }
-            };
-
-            embed.WithTimestamp();
-
-            embed.AddField(
-                "Player",
-                $"**{playerName}**",
-                true
-            );
+            var infoLines = new List<string>();
 
             if (config.ShowSteamId && steamId != 0)
             {
-                embed.AddField(
-                    "SteamID",
-                    $"`{steamId}`",
-                    true
+                infoLines.Add(
+                    $"**SteamID:** `{steamId}`"
                 );
             }
 
@@ -233,19 +300,15 @@ public partial class DiscordUtilities
                     GetOnlinePlayerCount() - 1
                 );
 
-                embed.AddField(
-                    "Players Online",
-                    $"{playersOnline}",
-                    true
+                infoLines.Add(
+                    $"**Players Online:** `{playersOnline}`"
                 );
             }
 
             if (config.ShowPlayerSlot)
             {
-                embed.AddField(
-                    "Slot",
-                    $"`{playerSlot}`",
-                    true
+                infoLines.Add(
+                    $"**Slot:** `{playerSlot}`"
                 );
             }
 
@@ -253,52 +316,117 @@ public partial class DiscordUtilities
             {
                 var time = TimeSpan.FromSeconds(connectedTime);
 
-                string duration;
+                var duration = time.TotalHours >= 1
+                    ? $"{(int)time.TotalHours}h {time.Minutes}m"
+                    : time.TotalMinutes >= 1
+                        ? $"{time.Minutes}m {time.Seconds}s"
+                        : $"{time.Seconds}s";
 
-                if (time.TotalHours >= 1)
-                {
-                    duration =
-                        $"{(int)time.TotalHours}h {time.Minutes}m";
-                }
-                else if (time.TotalMinutes >= 1)
-                {
-                    duration =
-                        $"{time.Minutes}m {time.Seconds}s";
-                }
-                else
-                {
-                    duration =
-                        $"{time.Seconds}s";
-                }
-
-                embed.AddField(
-                    "Session Time",
-                    $"`{duration}`",
-                    true
+                infoLines.Add(
+                    $"**Session Time:** `{duration}`"
                 );
             }
+
             if (config.ShowDisconnectReason &&
                 !string.IsNullOrWhiteSpace(disconnectReason))
             {
-                embed.AddField(
-                    "Disconnect Reason",
-                    $"`{disconnectReason}`",
-                    false
+                infoLines.Add(
+                    $"**Disconnect Reason:** `{disconnectReason}`"
                 );
             }
 
-            if (config.ShowSteamProfile && steamId != 0)
+            var playerInfo = string.Join(
+                "\n",
+                infoLines
+            );
+
+            var container = new DiscordComponentV2
             {
-                embed.AddField(
-                    "Steam Profile",
-                    $"[View Profile](https://steamcommunity.com/profiles/{steamId})",
-                    false
-                );
-            }
+                Type = 17, // Container
 
-            await Webhook.SendEmbedAsync(
+                AccentColor = WebhookService.ParseColor(
+                    config.LeaveEmbedColor
+                ),
+
+                Components =
+                [
+                    new DiscordComponentV2
+                {
+                    Type = 9, // Section
+
+                    Components =
+                    [
+                        new DiscordComponentV2
+                        {
+                            Type = 10, // Text Display
+                            Content = "## 🔴 Player Left"
+                        },
+
+                        new DiscordComponentV2
+                        {
+                            Type = 10, // Text Display
+                            Content =
+                                $"**{playerName}**\n\n" +
+                                playerInfo
+                        }
+                    ],
+
+                    Accessory = steamId != 0
+                        ? new DiscordComponentV2
+                        {
+                            Type = 11, // Thumbnail
+
+                            Media = new DiscordMedia
+                            {
+                                Url =
+                                    $"https://unavatar.io/steam/profile:{steamId}"
+                            },
+
+                            Description =
+                                $"{playerName}'s Steam avatar"
+                        }
+                        : null
+                },
+
+                new DiscordComponentV2
+                {
+                    Type = 14, // Separator
+                    Divider = true,
+                    Spacing = 1
+                },
+
+                new DiscordComponentV2
+                {
+                    Type = 1, // Action Row
+
+                    Components =
+                    [
+                        new DiscordComponentV2
+                        {
+                            Type = 2, // Button
+                            Style = 5,
+                            Label = "Steam Profile",
+                            Url =
+                                steamId != 0
+                                    ? $"https://steamcommunity.com/profiles/{steamId}"
+                                    : null
+                        }
+                    ]
+                },
+
+                new DiscordComponentV2
+                {
+                    Type = 10, // Text Display
+                    Content =
+                        $"*{serverName} • Discord Utilities • " +
+                        $"<t:{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}:R>*"
+                }
+                ]
+            };
+
+            await Webhook.SendComponentsV2Async(
                 config.WebhookUrl,
-                embed,
+                [container],
                 username: serverName
             );
         }
